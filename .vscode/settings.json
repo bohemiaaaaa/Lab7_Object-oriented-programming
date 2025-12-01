@@ -1,0 +1,8 @@
+{
+    "python.analysis.extraPaths": [
+        "./tasks"
+    ],
+    "editor.copyWithSyntaxHighlighting": false,
+    "terminal.integrated.copyOnSelection": true,
+    "python.defaultInterpreterPath": ".venv\\Scripts\\python.exe"
+}
