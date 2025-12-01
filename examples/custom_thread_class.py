@@ -1,5 +1,10 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*
+
+
 from threading import Thread
 from time import sleep
+
 
 class CustomThread(Thread):
     def __init__(self, limit):
@@ -11,6 +16,6 @@ class CustomThread(Thread):
             print(f"from CustomThread: {i}")
             sleep(0.5)
 
+
 cth = CustomThread(3)
 cth.start()
-

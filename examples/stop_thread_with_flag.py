@@ -1,8 +1,13 @@
-from threading import Thread, Lock
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*
+
+
+from threading import Lock, Thread
 from time import sleep
 
 lock = Lock()
 stop_thread = False
+
 
 def infinit_worker():
     print("Start infinit_worker()")
@@ -14,6 +19,7 @@ def infinit_worker():
         lock.release()
         sleep(0.1)
     print("Stop infinit_worker()")
+
 
 th = Thread(target=infinit_worker)
 th.start()
