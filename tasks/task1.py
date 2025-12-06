@@ -131,7 +131,6 @@ def calculate_series(
 def main() -> None:
     """Основная функция"""
 
-    # Параметры из задания
     x = 3.0
     epsilon = 1e-7
 
