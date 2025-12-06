@@ -1,156 +1,123 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*
+# -*- coding: utf-8 -*-
 
 
 import math
 import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
-from queue import Queue
 from typing import Tuple
 
 
 def series_term(n: int, x: float) -> float:
-    """Вычисление n-го члена бесконечного ряда"""
     try:
-        # Формула ряда: 1/((2n-1)*x^(2n-1))
         denominator = (2 * n - 1) * (x ** (2 * n - 1))
         return 1.0 / denominator
     except OverflowError:
-        # Если слишком большая степень, член практически 0
         return 0.0
 
 
 def control_value(x: float) -> float:
-    """Контрольное значение функции"""
-    # Формула: y = 0.5 * ln((x+1)/(x-1))
     return 0.5 * math.log((x + 1) / (x - 1))
 
 
 @dataclass
-class ThreadResult:
-    """Результат работы потока"""
-
-    thread_id: int
+class ChunkResult:
     start_n: int
     end_n: int
     partial_sum: float
     terms_count: int
 
 
-class SeriesThread(threading.Thread):
-    """Поток для вычисления части суммы ряда"""
+def calculate_chunk(
+    start_n: int, end_n: int, x: float, epsilon: float, stop_flag: threading.Event
+) -> ChunkResult:
+    partial_sum = 0.0
+    terms_count = 0
 
-    def __init__(
-        self,
-        thread_id: int,
-        x: float,
-        epsilon: float,
-        start_n: int,
-        end_n: int,
-        result_queue: Queue,
-    ):
-        super().__init__()
-        self.thread_id = thread_id
-        self.x = x
-        self.epsilon = epsilon
-        self.start_n = start_n
-        self.end_n = end_n
-        self.result_queue = result_queue
+    for n in range(start_n, end_n + 1):
+        if stop_flag.is_set():
+            break
 
-    def run(self) -> None:
-        """Основной метод потока"""
-        partial_sum = 0.0
-        terms_count = 0
-        n = self.start_n
+        term = series_term(n, x)
 
-        # Вычисляем члены ряда в заданном диапазоне
-        while n < self.end_n:
-            term = series_term(n, self.x)
+        if term == 0.0 or abs(term) < epsilon:
+            stop_flag.set()
+            break
 
-            # Проверка точности
-            if term == 0.0 or abs(term) < self.epsilon:
-                break
+        partial_sum += term
+        terms_count += 1
 
-            partial_sum += term
-            terms_count += 1
-            n += 1
-
-        # Сохраняем результат
-        result = ThreadResult(
-            thread_id=self.thread_id,
-            start_n=self.start_n,
-            end_n=n,
-            partial_sum=partial_sum,
-            terms_count=terms_count,
-        )
-        self.result_queue.put(result)
+    return ChunkResult(
+        start_n=start_n,
+        end_n=start_n + terms_count - 1,
+        partial_sum=partial_sum,
+        terms_count=terms_count,
+    )
 
 
 def calculate_series(
     x: float, epsilon: float, num_threads: int = 4
 ) -> Tuple[float, int]:
-    """Многопоточное вычисление суммы ряда"""
-    result_queue = Queue()
-    threads = []
+    stop_flag = threading.Event()
 
-    # Каждый поток вычисляет по 50 членов ряда
-    terms_per_thread = 50
+    chunk_size = 100
 
-    # Создаем и запускаем потоки
-    for i in range(num_threads):
-        start_n = i * terms_per_thread + 1
-        end_n = start_n + terms_per_thread
+    with ThreadPoolExecutor(max_workers=num_threads) as executor:
+        futures = []
+        next_n = 1
 
-        thread = SeriesThread(
-            thread_id=i + 1,
-            x=x,
-            epsilon=epsilon,
-            start_n=start_n,
-            end_n=end_n,
-            result_queue=result_queue,
-        )
-        threads.append(thread)
-        thread.start()
+        for i in range(num_threads * 2):
+            if stop_flag.is_set():
+                break
 
-    # Ожидаем завершения всех потоков
-    for thread in threads:
-        thread.join()
+            end_n = next_n + chunk_size - 1
+            future = executor.submit(
+                calculate_chunk, next_n, end_n, x, epsilon, stop_flag
+            )
+            futures.append(future)
+            next_n = end_n + 1
 
-    # Собираем результаты
-    total_sum = 0.0
-    total_terms = 0
+        total_sum = 0.0
+        total_terms = 0
+        completed_chunks = 0
 
-    while not result_queue.empty():
-        result = result_queue.get()
-        total_sum += result.partial_sum
-        total_terms += result.terms_count
+        for future in as_completed(futures):
+            if stop_flag.is_set() and completed_chunks > 0:
+                break
+
+            try:
+                result = future.result()
+                total_sum += result.partial_sum
+                total_terms += result.terms_count
+                completed_chunks += 1
+
+                if not stop_flag.is_set() and result.terms_count < chunk_size:
+                    stop_flag.set()
+
+            except Exception as e:
+                print(f"Ошибка при вычислении блока: {e}")
 
     return total_sum, total_terms
 
 
 def main() -> None:
-    """Основная функция"""
-
     x = 3.0
     epsilon = 1e-7
 
     print("Вычисление суммы бесконечного ряда с использованием многопоточности")
     print("=" * 60)
 
-    # Вычисляем сумму ряда (бесконечный ряд)
     S, terms_count = calculate_series(x, epsilon)
     print(f"Сумма бесконечного ряда S = {S:.10f}")
     print(f"Вычислено членов ряда: {terms_count}")
 
-    # Вычисляем контрольное значение
     y = control_value(x)
     print(f"\nКонтрольное значение y = {y:.10f}")
 
-    # Сравнение
     print("\nСравнение полученной суммы с контрольным значением:")
     print(f"|S - y| = {abs(S - y):.2e}")
 
-    # Проверка точности
     if abs(S - y) < epsilon:
         print(f"Точность достигнута: |S - y| < ε = {epsilon}")
     else:
