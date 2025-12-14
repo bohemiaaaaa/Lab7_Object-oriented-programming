@@ -3,87 +3,50 @@
 
 
 import math
-import threading
 
 import pytest
-from task1 import (
-    calculate_chunk,
-    calculate_series,
-    control_value,
-    series_term,
-)
+from task1 import Series
 
 
-def test_series_term_basic():
-    assert math.isclose(series_term(1, 3), 1 / (1 * 3**1))
-    assert math.isclose(series_term(2, 3), 1 / (3 * 3**3))
-    assert math.isclose(series_term(3, 3), 1 / (5 * 3**5))
+def test_single_term_value():
+    s = Series(x=3.0)
+    term = s._compute_element(1)
+
+    expected = 1.0 / ((2 * 1 - 1) * (3.0 ** (2 * 1 - 1)))
+    assert math.isclose(term, expected, rel_tol=1e-12)
 
 
-def test_series_term_overflow_safe():
-    assert series_term(10_000, 3) == 0.0
+def test_analytical_value():
+    s = Series(x=3.0)
+    exact = s.analytical()
+
+    expected = 0.5 * math.log((3.0 + 1) / (3.0 - 1))
+    assert math.isclose(exact, expected, rel_tol=1e-12)
 
 
-def test_control_value():
-    x = 3.0
-    expected = 0.5 * math.log((x + 1) / (x - 1))
-    assert math.isclose(control_value(x), expected)
+@pytest.mark.parametrize("threads", [1, 2, 4, 8])
+def test_series_convergence(threads):
+    eps = 1e-7
+    s = Series(x=3.0, eps=eps)
 
+    value, terms = s.evaluate(threads_num=threads)
+    exact = s.analytical()
 
-def test_calculate_chunk_basic():
-    x = 3.0
-    epsilon = 1e-7
-    stop_flag = threading.Event()
-
-    result = calculate_chunk(1, 50, x, epsilon, stop_flag)
-
-    assert result.partial_sum > 0
-    assert result.terms_count > 0
-    assert result.end_n >= result.start_n
-
-
-def test_calculate_chunk_stop_on_epsilon():
-    x = 3.0
-    epsilon = 1e-3
-    stop_flag = threading.Event()
-
-    result = calculate_chunk(1, 1000, x, epsilon, stop_flag)
-
-    assert result.terms_count < 1000
-    assert stop_flag.is_set()
-
-
-def test_calculate_series_accuracy():
-    x = 3.0
-    epsilon = 1e-7
-
-    S, terms = calculate_series(x, epsilon)
-    y = 0.5 * math.log((x + 1) / (x - 1))
-
-    assert abs(S - y) < epsilon
+    assert abs(value - exact) < eps
     assert terms > 0
 
 
-def test_calculate_series_small_threads():
-    x = 3.0
-    epsilon = 1e-7
+def test_result_stability():
+    s = Series(x=3.0, eps=1e-7)
 
-    S1, t1 = calculate_series(x, epsilon, num_threads=1)
-    S4, t4 = calculate_series(x, epsilon, num_threads=4)
+    value_2, _ = s.evaluate(threads_num=2)
+    value_4, _ = s.evaluate(threads_num=4)
 
-    assert math.isclose(S1, S4, rel_tol=1e-7)
-
-
-def test_calculate_series_fast_stop():
-    x = 3.0
-    epsilon = 1e-2
-
-    S, terms = calculate_series(x, epsilon)
-
-    assert terms < 10
-    assert abs(S - control_value(x)) < 1e-2
+    assert abs(value_2 - value_4) < 1e-9
 
 
-def test_calculate_chunk_raises_on_invalid_args():
-    with pytest.raises(TypeError):
-        calculate_chunk("invalid", 10, 3.0, 1e-7, threading.Event())
+def test_terms_count_reasonable():
+    s = Series(x=3.0, eps=1e-7)
+    _, terms = s.evaluate(threads_num=4)
+
+    assert 1 < terms < 10_000
